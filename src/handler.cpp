@@ -126,26 +126,32 @@ void handle_query_entity(std::shared_ptr<session> self) {
 	
 	std::set<entity_t> visited;
 	std::deque<entity_t> to_visit;
-	for (auto& d : db::query_e(read_txn, ns, tx, e)) {
-		if (d.is_int && refs.find(d.a) != refs.end() &&
-			visited.find(d.v) == visited.end())
-			to_visit.push_back(d.v);
+	to_visit.push_back(e);
+	while (!to_visit.empty()) {
+		auto cur = to_visit.front(); to_visit.pop_front();
+		if (visited.find(cur) != visited.end()) continue;
+		visited.insert(cur);
 
-		rapidjson::Value eavr(rapidjson::kArrayType);
-		eavr.PushBack(d.e, res.GetAllocator());
-		eavr.PushBack(d.a, res.GetAllocator());
+		for (auto& d : db::query_e(read_txn, ns, tx, cur)) {
+			if (d.is_int && refs.find(d.a) != refs.end() &&
+				visited.find(d.v) == visited.end())
+				to_visit.push_back(d.v);
 
-		if (!d.is_int) {
-			rapidjson::Value str;
-			str.SetString(d.vs.data(), d.vs.size(), res.GetAllocator());
-			eavr.PushBack(str, res.GetAllocator());
-		} else eavr.PushBack(d.v, res.GetAllocator());
+			rapidjson::Value eavr(rapidjson::kArrayType);
+			eavr.PushBack(d.e, res.GetAllocator());
+			eavr.PushBack(d.a, res.GetAllocator());
 
-		eavr.PushBack(d.t, res.GetAllocator());
-		eavr.PushBack(false, res.GetAllocator()); // db add
+			if (!d.is_int) {
+				rapidjson::Value str;
+				str.SetString(d.vs.data(), d.vs.size(), res.GetAllocator());
+				eavr.PushBack(str, res.GetAllocator());
+			} else eavr.PushBack(d.v, res.GetAllocator());
 
-		facts.PushBack(eavr, res.GetAllocator());
+			eavr.PushBack(d.t, res.GetAllocator());
+			eavr.PushBack(false, res.GetAllocator()); // db add
 
+			facts.PushBack(eavr, res.GetAllocator());
+		}
 	}
 	res.AddMember("facts", facts, res.GetAllocator());
 
