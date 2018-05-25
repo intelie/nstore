@@ -90,6 +90,9 @@ void session::read_request() {
 			case 's':
 				reader_service.post([self] () { handle_select(self); });
 				break;
+			case 'e':
+				reader_service.post([self] () { handle_query_entity(self); });
+				break;
 			case 'f':
 				reader_service.post([self] () { handle_facts(self); });
 				break;

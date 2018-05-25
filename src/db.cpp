@@ -347,7 +347,7 @@ query_result query_a(MDB_txn *txn, namespace_t ns, transaction_t tx, attribute_t
 	std::unordered_map <std::string, std::tuple<bool, int64_t, std::string, int64_t>> current;
 
 	int64_t last_e = -1;
-	auto write_batch = [&]() {
+	auto write_batch = [&] () {
 		for (const auto &it : current) {
 			if (std::get<0>(it.second))
 				q.push_back(datom(last_e, a,
@@ -361,7 +361,7 @@ query_result query_a(MDB_txn *txn, namespace_t ns, transaction_t tx, attribute_t
 		current.clear();
 	};
 
-	auto v = [&](custom_key *k, MDB_val *v) -> bool {
+	auto v = [&] (custom_key *k, MDB_val *v) -> bool {
 		if (k->a != a || k->ns != ns || k->sort != min_key.sort) return true;
 		if (k->t > tx) return false;
 		if (k->e != last_e) write_batch();
@@ -392,6 +392,66 @@ query_result query_a(MDB_txn *txn, namespace_t ns, transaction_t tx, attribute_t
 
 	return q;
 }
+
+query_result query_e(MDB_txn *txn, namespace_t ns, transaction_t tx, entity_t e) {
+	custom_key min_key = {0};
+	min_key.ns = ns;
+	min_key.type = KEY_MIN_SENTINEL;
+	min_key.sort = SORT_EATV;
+	min_key.e = e;
+
+	tx = (tx << 1) + 1;
+
+	query_result q;
+	std::unordered_map <std::string, std::tuple<bool, int64_t, std::string, int64_t>> current;
+
+	int64_t last_a = -1;
+	auto write_batch = [&] () {
+		for (const auto &it : current) {
+			if (std::get<0>(it.second))
+				q.push_back(datom(e, last_a,
+					std::get<2>(it.second),
+					std::get<3>(it.second), false));
+			else
+				q.push_back(datom(e, last_a,
+					std::get<1>(it.second),
+					std::get<3>(it.second), false));
+		}
+		current.clear();
+	};
+
+	auto v = [&] (custom_key *k, MDB_val *v) -> bool {
+		if (k->e != e || k->ns != ns || k->sort != min_key.sort) return true;
+		if (k->t > tx) return false;
+		if (k->a != last_a) write_batch();
+
+		std::string vs((char *) k->v.b, 32);
+		if (k->t & 1) { // retraction
+			current.erase(vs);
+		} else if (k->type == KEY_INTEGER) {
+			current[vs] = std::make_tuple(false, k->v.i, "", k->t >> 1);
+		} else {
+			if (k->pad > 0)
+				current[vs] = std::make_tuple(true, -1,
+					std::string((char *) k->v.b, k->pad - 1),
+					k->t >> 1);
+			else
+				current[vs] = std::make_tuple(true, -1,
+					std::string((char *) v->mv_data,
+					v->mv_size + k->pad),
+					k->t >> 1);
+		}
+
+		last_a = k->a;
+		return false;
+	};
+
+	query(txn, &min_key, v);
+	write_batch();
+
+	return q;
+}
+
 
 bool last_datom(MDB_txn *txn, custom_key *start) {
 	MDB_cursor *mc;

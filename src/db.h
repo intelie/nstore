@@ -129,6 +129,7 @@ struct datom {
 typedef std::vector <datom> query_result;
 
 query_result query_a(MDB_txn *txn, namespace_t ns, transaction_t tx, attribute_t a);
+query_result query_e(MDB_txn *txn, namespace_t ns, transaction_t tx, entity_t e);
 bool last_datom(MDB_txn *txn, custom_key *start);
 
 } // end of db namespace

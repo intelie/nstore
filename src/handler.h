@@ -8,6 +8,7 @@ class session;
 void handle_ping(std::shared_ptr<session> self);
 void handle_namespace(std::shared_ptr<session> self);
 void handle_select(std::shared_ptr<session> self);
+void handle_query_entity(std::shared_ptr<session> self);
 void handle_facts(std::shared_ptr<session> self);
 void handle_transact(std::shared_ptr<session> self);
 

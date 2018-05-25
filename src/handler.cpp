@@ -14,6 +14,7 @@ extern "C" {
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/error/en.h>
 
+#include <deque>
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
@@ -93,6 +94,68 @@ void handle_select(std::shared_ptr<session> self) {
 				self->read_request();
 			});
 	} else PERROR("[select] namespace does not exist");
+}
+
+void handle_query_entity(std::shared_ptr<session> self) {
+	auto arg = self->argument();
+	auto ns = self->selected();
+	rapidjson::Document doc;
+	if (doc.Parse(arg).HasParseError()) PERROR("[query_e] invalid json");
+	if (!doc.IsInt64()) PERROR("[query_e] invalid arg");
+	if (mdb_txn_renew(read_txn)) PERROR("[query_e] ro txn");
+
+	entity_t e = doc.GetInt64();
+	transaction_t tx = -1; // TODO
+	if (tx < 0) {
+		if (db::get_meta(read_txn, ns, META_TX, &tx)) {
+			mdb_txn_reset(read_txn);
+			PERROR("[query_e] db not initialized");
+		}
+	}
+
+	rapidjson::Document res; // Null
+	res.SetObject();
+	res.AddMember("type", "response", res.GetAllocator());
+	res.AddMember("tx", tx, res.GetAllocator());
+	rapidjson::Value facts(rapidjson::kArrayType);
+
+
+	std::set<entity_t> refs;
+	for (auto& d : db::query_a(read_txn, ns, tx, db_type))
+		if (d.v == db_type_ref) refs.insert(d.e);
+	
+	std::set<entity_t> visited;
+	std::deque<entity_t> to_visit;
+	for (auto& d : db::query_e(read_txn, ns, tx, e)) {
+		if (d.is_int && refs.find(d.a) != refs.end() &&
+			visited.find(d.v) == visited.end())
+			to_visit.push_back(d.v);
+
+		rapidjson::Value eavr(rapidjson::kArrayType);
+		eavr.PushBack(d.e, res.GetAllocator());
+		eavr.PushBack(d.a, res.GetAllocator());
+
+		if (!d.is_int) {
+			rapidjson::Value str;
+			str.SetString(d.vs.data(), d.vs.size(), res.GetAllocator());
+			eavr.PushBack(str, res.GetAllocator());
+		} else eavr.PushBack(d.v, res.GetAllocator());
+
+		eavr.PushBack(d.t, res.GetAllocator());
+		eavr.PushBack(false, res.GetAllocator()); // db add
+
+		facts.PushBack(eavr, res.GetAllocator());
+
+	}
+	res.AddMember("facts", facts, res.GetAllocator());
+
+	auto response = make_response(res);
+	io_service.post([self, response] () {
+			self->write(response);
+			self->read_request();
+		});
+
+	mdb_txn_reset(read_txn);
 }
 
 void handle_facts(std::shared_ptr<session> self) {
